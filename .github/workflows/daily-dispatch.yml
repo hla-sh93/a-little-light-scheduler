@@ -1,0 +1,38 @@
+name: Daily Telegram dispatch
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Baghdad is UTC+3. Three attempts reduce the effect of scheduler delays.
+    - cron: '0,20,40 5 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-telegram-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Invoke the protected production dispatcher
+        env:
+          DISPATCH_URL: https://a-little-light-omega.vercel.app/api/dispatch
+          SCHEDULER_SECRET: ${{ secrets.SCHEDULER_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SCHEDULER_SECRET"
+          status="$(curl --silent --show-error --max-time 90 \
+            --output response.json --write-out '%{http_code}' \
+            --header "Authorization: Bearer $SCHEDULER_SECRET" \
+            "$DISPATCH_URL")"
+          jq -e 'type == "object" and (has("outcomes") or has("code"))' response.json >/dev/null
+          if [ "$status" != "200" ]; then
+            jq '{code, outcomes}' response.json
+            exit 1
+          fi
+          jq '{code, outcomes}' response.json
